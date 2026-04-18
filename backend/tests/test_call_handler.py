@@ -13,21 +13,24 @@ def db(monkeypatch):
 
 
 async def test_place_call_demo_mode_stores_placeholder(db, monkeypatch):
+    """With no ELEVENLABS_PHONE_NUMBER_ID set, demo mode writes a stub call doc."""
     monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.delenv("ELEVENLABS_PHONE_NUMBER_ID", raising=False)
     await db.patients.insert_one({
         "_id": "p1", "name": "A", "phone": "+15555550010",
         "caregiver": {"phone": "+1"}, "call_count": 0,
     })
-    placed: list[str] = []
+    call_id = await ch.place_call("p1")
+    assert call_id
+    doc = await db.calls.find_one({"_id": call_id})
+    assert doc is not None
+    assert doc["patient_id"] == "p1"
+    assert doc["short_call"] is True
 
-    def fake_create(**kwargs):
-        placed.append(kwargs["to"])
-        class R: sid = "CAtest"
-        return R()
 
-    monkeypatch.setattr(ch, "_twilio_create_call", fake_create)
-    await ch.place_call("p1")
-    assert placed == ["+15555550010"]
+async def test_place_call_missing_patient_raises(db):
+    with pytest.raises(LookupError):
+        await ch.place_call("nope")
 
 
 def test_twiml_prompt_contains_patient_name():

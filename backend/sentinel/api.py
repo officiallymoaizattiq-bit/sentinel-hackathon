@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import asyncio
-import base64
-import json
 from datetime import datetime
 
-from fastapi import APIRouter, Form, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Form, HTTPException, Response
 from pydantic import BaseModel
 from twilio.twiml.voice_response import VoiceResponse as TwilioVoiceResponse
 
 from sentinel import enrollment
-from sentinel.call_handler import build_check_in_twiml, run_convo_bridge
+from sentinel.call_handler import build_check_in_twiml
 from sentinel.db import get_db
 from sentinel.models import Caregiver, Consent, SurgeryType
 
@@ -129,54 +126,6 @@ async def twiml_gather(patient_id: str, SpeechResult: str = Form("")):
     return Response(content=str(resp), media_type="application/xml")
 
 
-@router.websocket("/ws/twilio")
-async def twilio_media_stream(ws: WebSocket):
-    await ws.accept()
-    patient_id: str | None = None
-    stream_sid: str | None = None
-    inbound_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
-
-    async def reader():
-        nonlocal stream_sid, patient_id
-        try:
-            while True:
-                msg = await ws.receive_text()
-                data = json.loads(msg)
-                ev = data.get("event")
-                if ev == "start":
-                    stream_sid = data["start"]["streamSid"]
-                    patient_id = (
-                        data["start"].get("customParameters", {}).get("patient_id")
-                    )
-                elif ev == "media":
-                    payload = data["media"]["payload"]
-                    await inbound_queue.put(base64.b64decode(payload))
-                elif ev == "stop":
-                    await inbound_queue.put(None)
-                    break
-        except WebSocketDisconnect:
-            await inbound_queue.put(None)
-
-    async def writer(audio_bytes: bytes) -> None:
-        if stream_sid is None:
-            return
-        await ws.send_text(json.dumps({
-            "event": "media",
-            "streamSid": stream_sid,
-            "media": {"payload": base64.b64encode(audio_bytes).decode()},
-        }))
-
-    reader_task = asyncio.create_task(reader())
-    try:
-        await run_convo_bridge(
-            patient_id_getter=lambda: patient_id,
-            inbound_queue=inbound_queue,
-            send_to_twilio=writer,
-        )
-    finally:
-        reader_task.cancel()
-
-
 from sentinel.demo_runner import run_trajectory_demo
 
 
@@ -184,3 +133,38 @@ from sentinel.demo_runner import run_trajectory_demo
 async def demo_run():
     pid = await run_trajectory_demo()
     return {"patient_id": pid}
+
+
+from pydantic import BaseModel as _BM
+
+
+class TriggerCallBody(_BM):
+    patient_id: str
+
+
+@router.post("/calls/trigger")
+async def trigger_call(body: TriggerCallBody):
+    """On-demand: dial a patient now. Used for live-call demo and testing."""
+    from sentinel.call_handler import place_call
+    try:
+        call_id = await place_call(body.patient_id)
+    except LookupError:
+        raise HTTPException(404, "patient not found")
+    return {"call_id": call_id}
+
+
+class FinalizeBody(_BM):
+    conversation_id: str
+
+
+@router.post("/calls/finalize")
+async def finalize(body: FinalizeBody):
+    """ElevenLabs post-call webhook (or manual trigger) - pulls transcript
+    + audio + runs scoring. Idempotent: re-running on same conversation_id
+    creates a new scored call doc.
+    """
+    from sentinel.call_handler import finalize_call
+    new_id = await finalize_call(conversation_id=body.conversation_id)
+    if new_id is None:
+        raise HTTPException(404, "no call found for conversation_id")
+    return {"call_id": new_id}

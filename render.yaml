@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: sentinel-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/patients
+    plan: starter
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB
+        value: sentinel
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_AGENT_ID
+        sync: false
+      - key: ELEVENLABS_PHONE_NUMBER_ID
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: DEVICE_TOKEN_SECRET
+        generateValue: true
+      - key: DEMO_MODE
+        value: "false"
+
+  - type: web
+    name: sentinel-ui
+    runtime: node
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    plan: starter
+    envVars:
+      - key: BACKEND_URL
+        sync: false
