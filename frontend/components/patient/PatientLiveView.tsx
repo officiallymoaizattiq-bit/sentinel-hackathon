@@ -32,6 +32,7 @@ export function PatientLiveView({
   const [calls, setCalls] = useState<CallRecord[]>(initialCalls);
   const [incoming, setIncoming] = useState<{ at: string; mode: string } | null>(null);
   const [widgetOpen, setWidgetOpen] = useState(false);
+  const [lastEvent, setLastEvent] = useState<string>("(none yet)");
 
   useEffect(() => {
     if (document.querySelector(`script[src="${WIDGET_SRC}"]`)) return;
@@ -40,7 +41,11 @@ export function PatientLiveView({
     document.body.appendChild(s);
   }, []);
 
-  useEventStream((e) => {
+  const { connected } = useEventStream((e) => {
+    setLastEvent(
+      `${new Date().toLocaleTimeString()} · ${e.type}` +
+      ("patient_id" in e ? ` pid=${e.patient_id.slice(0, 8)} mine=${patientId.slice(0, 8)}` : "")
+    );
     if (e.type === "pending_call" && e.patient_id === patientId) {
       setIncoming({ at: e.at, mode: e.mode });
     }
@@ -60,8 +65,19 @@ export function PatientLiveView({
   return (
     <div className="mx-auto max-w-lg space-y-6 p-4">
       <header>
-        <h1 className="text-2xl font-semibold">{patientName}</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">{patientName}</h1>
+          <span className={
+            "rounded-full px-2 py-0.5 text-[10px] " +
+            (connected
+              ? "border border-emerald-400/40 text-emerald-300"
+              : "border border-yellow-400/40 text-yellow-300 animate-pulse")
+          }>
+            {connected ? "● live" : "● connecting"}
+          </span>
+        </div>
         <p className="text-sm text-slate-400">Your recent check-ins</p>
+        <p className="mt-1 font-mono text-[10px] text-slate-500">last: {lastEvent}</p>
       </header>
 
       {incoming && !widgetOpen && (

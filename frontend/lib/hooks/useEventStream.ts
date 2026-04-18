@@ -29,7 +29,13 @@ export function useEventStream(onEvent: (e: StreamEvent) => void): {
 
     const open = () => {
       if (cancelled) return;
-      source = new EventSource("/api/stream");
+      // Bypass Next dev proxy which buffers SSE; hit backend direct in browser.
+      const base =
+        typeof window !== "undefined" &&
+        (window as unknown as { SENTINEL_BACKEND?: string }).SENTINEL_BACKEND
+          ? (window as unknown as { SENTINEL_BACKEND: string }).SENTINEL_BACKEND
+          : (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000");
+      source = new EventSource(`${base}/api/stream`, { withCredentials: true });
       source.onopen = () => {
         setConnected(true);
         setReconnectAt(null);
