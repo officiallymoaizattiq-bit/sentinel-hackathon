@@ -22,7 +22,7 @@ async def client(monkeypatch):
 
 async def test_admin_login_happy_path(client):
     r = await client.post("/api/auth/login",
-                          json={"role": "admin", "passkey": "sentinel-admin"})
+                          json={"role": "admin", "passkey": "a"})
     assert r.status_code == 200
     assert r.json() == {"role": "admin"}
     assert "sentinel_session" in r.cookies
@@ -37,7 +37,7 @@ async def test_admin_login_wrong_passkey(client):
 async def test_patient_login_happy_path(client):
     r = await client.post("/api/auth/login",
                           json={"role": "patient",
-                                "passkey": "sentinel-patient",
+                                "passkey": "b",
                                 "patient_id": "p1"})
     assert r.status_code == 200
     assert r.json() == {"role": "patient", "patient_id": "p1"}
@@ -46,7 +46,7 @@ async def test_patient_login_happy_path(client):
 async def test_patient_login_unknown_patient(client):
     r = await client.post("/api/auth/login",
                           json={"role": "patient",
-                                "passkey": "sentinel-patient",
+                                "passkey": "b",
                                 "patient_id": "ghost"})
     assert r.status_code == 401
     assert r.json()["detail"]["error"] == "unknown_patient"
@@ -54,7 +54,7 @@ async def test_patient_login_unknown_patient(client):
 
 async def test_me_after_login(client):
     await client.post("/api/auth/login",
-                      json={"role": "admin", "passkey": "sentinel-admin"})
+                      json={"role": "admin", "passkey": "a"})
     r = await client.get("/api/auth/me")
     assert r.status_code == 200
     assert r.json()["role"] == "admin"
@@ -67,7 +67,7 @@ async def test_me_without_session(client):
 
 async def test_logout_clears(client):
     await client.post("/api/auth/login",
-                      json={"role": "admin", "passkey": "sentinel-admin"})
+                      json={"role": "admin", "passkey": "a"})
     r = await client.post("/api/auth/logout")
     assert r.status_code == 204
     r2 = await client.get("/api/auth/me")
