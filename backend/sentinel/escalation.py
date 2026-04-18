@@ -34,7 +34,8 @@ def _sms_send(to: str, body: str) -> None:
     if (
         not s.twilio_account_sid
         or not s.twilio_from_number
-        or (s.demo_mode and not to.startswith("+1"))
+        or s.demo_mode
+        or to.startswith("+1555")
     ):
         print(f"[DEMO SMS] to={to} body={body}")
         return
