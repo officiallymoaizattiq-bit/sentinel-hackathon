@@ -79,7 +79,10 @@ async def _demo_stub_call(patient_id: str) -> str:
 
 
 def _ulaw_to_pcm(ulaw: bytes) -> bytes:
-    import audioop
+    try:
+        import audioop
+    except ModuleNotFoundError:
+        import audioop_lts as audioop
     return audioop.ulaw2lin(ulaw, 2)
 
 
