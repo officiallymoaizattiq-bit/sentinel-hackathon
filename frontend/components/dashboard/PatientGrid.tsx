@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, type CallRecord, type Patient } from "@/lib/api";
 import { usePolling } from "@/lib/hooks/usePolling";
 import { PatientCard } from "@/components/PatientCard";
+import { CallNowButton } from "@/components/admin/CallNowButton";
 import { Glass } from "@/components/ui/Glass";
 
 type CallSummary = {
@@ -110,14 +111,18 @@ export function PatientGrid({
       {patients.map((p) => {
         const s = summaries[p.id] ?? EMPTY;
         return (
-          <PatientCard
-            key={p.id}
-            p={p}
-            series={s.series}
-            lastDeterioration={s.lastDeterioration}
-            lastAction={s.lastAction}
-            lastCalledAt={s.lastCalledAt}
-          />
+          <div key={p.id} className="relative">
+            <PatientCard
+              p={p}
+              series={s.series}
+              lastDeterioration={s.lastDeterioration}
+              lastAction={s.lastAction}
+              lastCalledAt={s.lastCalledAt}
+            />
+            <div className="absolute right-3 bottom-3 z-10">
+              <CallNowButton patientId={p.id} />
+            </div>
+          </div>
         );
       })}
     </div>
