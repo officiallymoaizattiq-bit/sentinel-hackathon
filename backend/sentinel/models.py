@@ -132,3 +132,57 @@ class CohortCase(BaseModel):
     outcome: str
 
     model_config = {"populate_by_name": True}
+
+
+class Vital(BaseModel):
+    t: datetime
+    patient_id: str
+    device_id: str
+    kind: str  # heart_rate|spo2|resp_rate|temp|steps|sleep_stage|hrv_sdnn|hrv_rmssd
+    value: float | str  # float for numeric; str for sleep_stage enum
+    unit: str  # bpm|pct|cpm|c|count|enum|ms
+    source: str  # apple_healthkit|health_connect|manual
+    confidence: float | None = None
+    clock_skew: bool = False
+
+
+class DeviceInfo(BaseModel):
+    model: str = ""
+    os: str = ""
+    app_version: str = ""
+
+
+class Device(BaseModel):
+    id: str | None = Field(default=None, alias="_id")
+    patient_id: str
+    token_hash: str  # bcrypt hash of JWT (for revocation check)
+    device_info: DeviceInfo = DeviceInfo()
+    created_at: datetime
+    last_seen_at: datetime | None = None
+    revoked_at: datetime | None = None
+    clock_skew_detected_at: datetime | None = None
+    clock_skew_severe: bool = False
+    push_token: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class PairingCode(BaseModel):
+    id: str | None = Field(default=None, alias="_id")  # the 6-digit code IS the _id
+    patient_id: str
+    expires_at: datetime
+    consumed_at: datetime | None = None
+    consumed_by_device_id: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class ProcessedBatch(BaseModel):
+    id: str | None = Field(default=None, alias="_id")  # batch_id is _id
+    patient_id: str
+    device_id: str
+    processed_at: datetime
+    accepted_count: int
+    flagged_clock_skew: int = 0
+
+    model_config = {"populate_by_name": True}

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     call_cadence_hours: int = Field(default=12, ge=1, le=24)
     demo_mode: bool = True
+    device_token_secret: str = "dev-only-change-in-prod-NOT-SECURE"
 
 
 @lru_cache
