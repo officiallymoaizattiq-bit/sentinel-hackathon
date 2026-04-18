@@ -33,8 +33,13 @@ export type Alert = {
   sent_at: string;
 };
 
+const BASE =
+  typeof window === "undefined"
+    ? process.env.BACKEND_URL ?? "http://localhost:8000"
+    : "";
+
 async function j<T>(path: string): Promise<T> {
-  const r = await fetch(path, { cache: "no-store" });
+  const r = await fetch(`${BASE}${path}`, { cache: "no-store" });
   if (!r.ok) throw new Error(`${r.status} ${path}`);
   return r.json();
 }
