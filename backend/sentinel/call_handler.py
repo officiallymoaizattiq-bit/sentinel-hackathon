@@ -42,11 +42,107 @@ async def place_call(patient_id: str) -> str:
         raise LookupError(patient_id)
     s = get_settings()
 
+    if s.demo_mode and not s.twilio_account_sid.startswith("AC"):
+        return await _demo_stub_call(patient_id)
+
     base = s.public_base_url.rstrip("/")
-    twiml_url = f"{base}/api/calls/twiml?patient_id={patient_id}"
+    ws_url = base.replace("http", "ws", 1) + "/api/ws/twilio"
+    twiml = f"""
+<Response>
+  <Connect>
+    <Stream url="{ws_url}">
+      <Parameter name="patient_id" value="{patient_id}"/>
+    </Stream>
+  </Connect>
+</Response>
+""".strip()
 
     result = _twilio_create_call(
-        to=patient["phone"], from_=s.twilio_from_number,
-        url=twiml_url, method="GET",
+        to=patient["phone"], from_=s.twilio_from_number, twiml=twiml,
     )
     return result.sid
+
+
+async def _demo_stub_call(patient_id: str) -> str:
+    call_id = str(uuid4())
+    await get_db().calls.insert_one({
+        "_id": call_id,
+        "patient_id": patient_id,
+        "called_at": datetime.now(tz=timezone.utc),
+        "duration_s": 0.0,
+        "transcript": [],
+        "audio_features": {}, "baseline_drift": {},
+        "score": None, "similar_calls": [], "embedding": [],
+        "llm_degraded": False, "audio_degraded": True, "short_call": True,
+    })
+    return call_id
+
+
+def _ulaw_to_pcm(ulaw: bytes) -> bytes:
+    import audioop
+    return audioop.ulaw2lin(ulaw, 2)
+
+
+async def run_convo_bridge(
+    *, patient_id_getter, inbound_queue, send_to_twilio,
+) -> str | None:
+    """Receive μ-law audio from Twilio, buffer it, score after call ends.
+
+    NOTE: Real ElevenLabs Conversational AI integration is deferred to the
+    live-smoke-test step (Task 19). For now this captures audio and runs
+    the scoring pipeline on whatever we received.
+    """
+    import io
+    import numpy as np
+    import soundfile as sf
+
+    from sentinel.audio_features import extract_features, zscore_drift
+    from sentinel.models import AudioFeatures, TranscriptTurn
+    from sentinel.scoring import GeminiLLM, score_call
+
+    pcm_buf = bytearray()
+    try:
+        while True:
+            chunk = await inbound_queue.get()
+            if chunk is None:
+                break
+            pcm_buf.extend(_ulaw_to_pcm(chunk))
+    except Exception:
+        pass
+
+    pid = patient_id_getter()
+    if pid is None:
+        return None
+
+    if len(pcm_buf) < 8000:  # <1 sec of audio — nothing worth scoring
+        return await _demo_stub_call(pid)
+
+    arr = np.frombuffer(bytes(pcm_buf), dtype="<i2").astype("float32") / 32768.0
+    tmp_path = f"/tmp/{uuid4()}.wav"
+    sf.write(tmp_path, arr, 8000, subtype="PCM_16")
+
+    features = extract_features(tmp_path)
+    baseline = await _baseline_features(pid)
+    drift = zscore_drift(current=features, baseline=baseline, stdev=None)
+
+    return await score_call(
+        patient_id=pid,
+        transcript=[],  # Real transcript comes from EL integration in Task 19.
+        features=features,
+        drift=drift,
+        llm=GeminiLLM(),
+    )
+
+
+async def _baseline_features(patient_id: str):
+    from sentinel.models import AudioFeatures
+    first = await (
+        get_db()
+        .calls.find({"patient_id": patient_id})
+        .sort("called_at", 1)
+        .limit(1)
+        .to_list(1)
+    )
+    if first and first[0].get("audio_features"):
+        return AudioFeatures(**first[0]["audio_features"])
+    return AudioFeatures()

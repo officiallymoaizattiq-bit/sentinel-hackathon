@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import json
 from datetime import datetime
 
-from fastapi import APIRouter, Form, HTTPException, Response
+from fastapi import APIRouter, Form, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from twilio.twiml.voice_response import VoiceResponse as TwilioVoiceResponse
 
 from sentinel import enrollment
-from sentinel.call_handler import build_check_in_twiml
+from sentinel.call_handler import build_check_in_twiml, run_convo_bridge
 from sentinel.db import get_db
 from sentinel.models import Caregiver, Consent, SurgeryType
 
@@ -124,3 +127,51 @@ async def twiml_gather(patient_id: str, SpeechResult: str = Form("")):
     resp = TwilioVoiceResponse()
     resp.say("Thank you. A nurse will review your check-in. Goodbye.")
     return Response(content=str(resp), media_type="application/xml")
+
+
+@router.websocket("/ws/twilio")
+async def twilio_media_stream(ws: WebSocket):
+    await ws.accept()
+    patient_id: str | None = None
+    stream_sid: str | None = None
+    inbound_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+
+    async def reader():
+        nonlocal stream_sid, patient_id
+        try:
+            while True:
+                msg = await ws.receive_text()
+                data = json.loads(msg)
+                ev = data.get("event")
+                if ev == "start":
+                    stream_sid = data["start"]["streamSid"]
+                    patient_id = (
+                        data["start"].get("customParameters", {}).get("patient_id")
+                    )
+                elif ev == "media":
+                    payload = data["media"]["payload"]
+                    await inbound_queue.put(base64.b64decode(payload))
+                elif ev == "stop":
+                    await inbound_queue.put(None)
+                    break
+        except WebSocketDisconnect:
+            await inbound_queue.put(None)
+
+    async def writer(audio_bytes: bytes) -> None:
+        if stream_sid is None:
+            return
+        await ws.send_text(json.dumps({
+            "event": "media",
+            "streamSid": stream_sid,
+            "media": {"payload": base64.b64encode(audio_bytes).decode()},
+        }))
+
+    reader_task = asyncio.create_task(reader())
+    try:
+        await run_convo_bridge(
+            patient_id_getter=lambda: patient_id,
+            inbound_queue=inbound_queue,
+            send_to_twilio=writer,
+        )
+    finally:
+        reader_task.cancel()
